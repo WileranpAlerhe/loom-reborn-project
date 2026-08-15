@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -16,23 +16,9 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  const [src, setSrc] = useState<string | null>(null);
-
   useEffect(() => {
-    setSrc("/ml/start.html" + window.location.search);
+    window.location.replace("/ml/start.html" + window.location.search);
   }, []);
 
-  return (
-    <iframe
-      title="Cartão Lumio"
-      src={src ?? undefined}
-      style={{
-        position: "fixed",
-        inset: 0,
-        width: "100%",
-        height: "100%",
-        border: 0,
-      }}
-    />
-  );
+  return null;
 }
