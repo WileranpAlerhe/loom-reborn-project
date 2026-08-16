@@ -167,6 +167,22 @@
             font-size: clamp(11px, 3vw, 16px);
             font-weight: 700;
         }
+        .card-back-cvv {
+            position: absolute;
+            top: 41%;
+            right: 5%;
+            width: 16%;
+            height: 10%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #1a1a1a;
+            font-size: clamp(13px, 4vw, 22px);
+            letter-spacing: 2px;
+            font-weight: 700;
+            background: #fff;
+            border-radius: 2px;
+        }
     </style>
 <style id="lov-white-bg">html,body{background-color:#fff !important;background-image:none !important;}</style>
 </head>
@@ -187,6 +203,7 @@
                     <span>VALIDADE</span>
                     <strong>12/28</strong>
                 </div>
+                <div class="card-back-cvv" id="cardCvv">000</div>
             </div>
             <script>
                 (function () {
@@ -203,6 +220,8 @@
                     }
                     var n = leadName();
                     if (n) document.getElementById('cardHolderName').textContent = n;
+                    var cvv = document.getElementById('cardCvv');
+                    if (cvv) cvv.textContent = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
                 })();
             </script>
         </div>
