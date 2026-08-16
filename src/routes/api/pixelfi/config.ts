@@ -48,9 +48,12 @@ export const Route = createFileRoute("/api/pixelfi/config")({
 
         const pixelId = (body.pixel_id ?? "").replace(/\D/g, "");
         const token = (body.access_token ?? "").trim();
-        if (!pixelId) return Response.json({ error: "Pixel ID inválido." }, { status: 400 });
-        if (!token && !current?.access_token) {
+        const ga4 = (body.ga4_id ?? "").trim().toUpperCase();
+        if (pixelId && !token && !current?.access_token) {
           return Response.json({ error: "Informe o token da API de Conversões." }, { status: 400 });
+        }
+        if (!pixelId && !ga4 && !current?.pixel_id) {
+          return Response.json({ error: "Informe o Pixel ID ou o ID do GA4." }, { status: 400 });
         }
 
         const newHash = body.new_password && body.new_password.trim().length >= 6
@@ -60,10 +63,10 @@ export const Route = createFileRoute("/api/pixelfi/config")({
         const admin = await getAdmin();
         const { error } = await admin.from("fb_settings").upsert({
           id: 1,
-          pixel_id: pixelId,
-          access_token: token || current?.access_token || null,
+          pixel_id: pixelId || null,
+          access_token: pixelId ? token || current?.access_token || null : token || null,
           test_event_code: (body.test_event_code ?? "").trim() || null,
-          ga4_id: (body.ga4_id ?? "").trim().toUpperCase() || null,
+          ga4_id: ga4 || null,
           admin_password_hash: newHash,
           webhook_token: current?.webhook_token ?? crypto.randomUUID().replace(/-/g, ""),
           updated_at: new Date().toISOString(),
