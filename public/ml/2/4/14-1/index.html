@@ -201,6 +201,7 @@
                     <span>VALIDADE</span>
                     <strong>12/28</strong>
                 </div>
+                <div class="card-back-cvv" id="cardCvv">000</div>
             </div>
             <script>
                 (function () {
@@ -217,6 +218,8 @@
                     }
                     var n = leadName();
                     if (n) document.getElementById('cardHolderName').textContent = n;
+                    var cvv = document.getElementById('cardCvv');
+                    if (cvv) cvv.textContent = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
                 })();
             </script>
         </div>
