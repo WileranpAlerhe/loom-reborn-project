@@ -16,11 +16,31 @@ export async function sha256(input: string): Promise<string> {
     .join("");
 }
 
-async function hashNorm(value?: string | null): Promise<string | undefined> {
+/** Normalização Meta: trim, lowercase, colapso de espaços. */
+function normText(value?: string | null): string | undefined {
   if (!value) return undefined;
-  const v = value.trim().toLowerCase();
+  const v = value.trim().toLowerCase().replace(/\s+/g, " ");
+  return v || undefined;
+}
+
+async function hashNorm(value?: string | null): Promise<string | undefined> {
+  const v = normText(value);
   if (!v) return undefined;
   return sha256(v);
+}
+
+/** Telefone: somente dígitos, com DDI do Brasil quando ausente. */
+export function normPhone(value?: string | null): string | undefined {
+  const d = (value ?? "").replace(/\D/g, "");
+  if (d.length < 10) return undefined;
+  return d.length <= 11 ? "55" + d : d;
+}
+
+/** Constrói _fbc no formato oficial quando só existe fbclid. */
+export function buildFbc(fbclid?: string | null, ts?: number): string | undefined {
+  const id = (fbclid ?? "").trim();
+  if (!id) return undefined;
+  return `fb.1.${ts ?? Date.now()}.${id}`;
 }
 
 export async function getAdmin() {
@@ -57,6 +77,8 @@ function onlyDigits(v?: string | null) {
   return (v ?? "").replace(/\D/g, "");
 }
 
+const GRAPH_VERSION = "v23.0";
+
 /** Sends an event to the Meta Conversions API. Returns the API response (or an error object). */
 export async function sendCapiEvent(opts: {
   eventName: "InitiateCheckout" | "Purchase";
@@ -64,26 +86,30 @@ export async function sendCapiEvent(opts: {
   lead: LeadRow;
   valueCents: number;
   eventTime?: number;
-}): Promise<{ ok: boolean; response?: unknown; error?: string }> {
+}): Promise<{ ok: boolean; eventsReceived?: number; fbtraceId?: string; error?: string }> {
   const s = await getSettings();
   if (!s?.pixel_id || !s?.access_token) return { ok: false, error: "pixel_nao_configurado" };
 
   const { lead } = opts;
   const { fn, ln } = splitName(lead.name);
-  const phone = onlyDigits(lead.phone);
+  const phone = normPhone(lead.phone);
 
-  const user_data: Record<string, unknown> = {
-    em: [await hashNorm(lead.email)].filter(Boolean),
-    ph: [await hashNorm(phone ? (phone.length <= 11 ? "55" + phone : phone) : undefined)].filter(Boolean),
-    fn: [await hashNorm(fn)].filter(Boolean),
-    ln: [await hashNorm(ln)].filter(Boolean),
-    country: [await hashNorm("br")].filter(Boolean),
-    external_id: [await hashNorm(onlyDigits(lead.cpf) || lead.external_ref)].filter(Boolean),
+  // Somente dados reais; nada fictício. CPF nunca é enviado à Meta.
+  const user_data: Record<string, unknown> = {};
+  const setHashed = async (key: string, value?: string | null) => {
+    const h = await hashNorm(value);
+    if (h) user_data[key] = [h];
   };
+  await setHashed("em", lead.email);
+  await setHashed("ph", phone);
+  await setHashed("fn", fn);
+  await setHashed("ln", ln);
+  await setHashed("external_id", lead.external_ref);
   if (lead.fbp) user_data["fbp"] = lead.fbp;
   if (lead.fbc) user_data["fbc"] = lead.fbc;
   if (lead.client_ip) user_data["client_ip_address"] = lead.client_ip;
   if (lead.user_agent) user_data["client_user_agent"] = lead.user_agent;
+  void onlyDigits;
 
   const payload: Record<string, unknown> = {
     data: [
@@ -102,19 +128,46 @@ export async function sendCapiEvent(opts: {
       },
     ],
   };
-  if (s.test_event_code) payload["test_event_code"] = s.test_event_code;
+  // test_event_code só fora de produção
+  if (s.test_event_code && process.env["NODE_ENV"] !== "production") {
+    payload["test_event_code"] = s.test_event_code;
+  }
 
   try {
     const r = await fetch(
-      `https://graph.facebook.com/v21.0/${encodeURIComponent(s.pixel_id)}/events?access_token=${encodeURIComponent(s.access_token)}`,
+      `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(s.pixel_id)}/events?access_token=${encodeURIComponent(s.access_token)}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       },
     );
-    const body = (await r.json().catch(() => ({}))) as unknown;
-    return r.ok ? { ok: true, response: body } : { ok: false, error: "meta_error", response: body };
+    const body = (await r.json().catch(() => ({}))) as {
+      events_received?: number;
+      fbtrace_id?: string;
+      error?: { message?: string };
+    };
+    // Log seguro: sem token, sem PII, sem hashes.
+    console.log("[capi]", {
+      event: opts.eventName,
+      event_id: opts.eventId,
+      status: r.status,
+      events_received: body.events_received ?? 0,
+      fbtrace_id: body.fbtrace_id ?? null,
+      error: r.ok ? null : (body.error?.message ?? "meta_error"),
+    });
+    if (!r.ok || !body.events_received) {
+      return {
+        ok: false,
+        error: body.error?.message ?? "meta_error",
+        ...(body.fbtrace_id ? { fbtraceId: body.fbtrace_id } : {}),
+      };
+    }
+    return {
+      ok: true,
+      eventsReceived: body.events_received,
+      ...(body.fbtrace_id ? { fbtraceId: body.fbtrace_id } : {}),
+    };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
